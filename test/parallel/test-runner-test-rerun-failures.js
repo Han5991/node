@@ -88,14 +88,14 @@ const expectedStateFile = [
 ];
 
 const getStateFile = async () => {
-  const res = JSON.parse((await readFile(stateFile, 'utf8')).replaceAll('\\\\', '/'));
-  res.forEach((entry) => {
+  const { runs } = JSON.parse((await readFile(stateFile, 'utf8')).replaceAll('\\\\', '/'));
+  runs.forEach((entry) => {
     for (const item in entry) {
       delete entry[item].children;
       delete entry[item].duration_ms;
     }
   });
-  return res;
+  return runs;
 };
 
 test('test should pass on third rerun', async () => {
@@ -246,11 +246,11 @@ test('rerun preserves the original duration on the replayed pass', async () => {
   assert.doesNotMatch(second.stdout, /always failing[^\n]*\(passed on attempt/,
                       'the failing test must not show the replay marker');
 
-  const raw = JSON.parse(await readFile(stateFile, 'utf8'));
-  const passKey = Object.keys(raw[0]).find((k) => raw[0][k].name === 'passing slow test');
+  const { runs } = JSON.parse(await readFile(stateFile, 'utf8'));
+  const passKey = Object.keys(runs[0]).find((k) => runs[0][k].name === 'passing slow test');
   assert.ok(passKey, 'expected the passing test to be recorded on attempt 0');
-  assert.ok(raw[0][passKey].duration_ms > 0, 'expected a measurable duration on attempt 0');
-  assert.strictEqual(raw[1][passKey].duration_ms, raw[0][passKey].duration_ms);
+  assert.ok(runs[0][passKey].duration_ms > 0, 'expected a measurable duration on attempt 0');
+  assert.strictEqual(runs[1][passKey].duration_ms, runs[0][passKey].duration_ms);
 });
 
 test('using `run` api', async () => {

@@ -1,5 +1,6 @@
 import * as common from '../common/index.mjs';
 import * as fixtures from '../common/fixtures.mjs';
+import tmpdir from '../common/tmpdir.js';
 import { basename, join } from 'node:path';
 import { describe, it, run } from 'node:test';
 import { dot, spec, tap } from 'node:test/reporters';
@@ -8,7 +9,7 @@ import assert from 'node:assert';
 import util from 'node:util';
 
 const testFixtures = fixtures.path('test-runner');
-const rerunStateFile = join(testFixtures, 'rerun-state.json');
+tmpdir.refresh();
 
 describe('require(\'node:test\').run', { concurrency: true }, () => {
   it('should run with no tests', async () => {
@@ -693,18 +694,28 @@ describe('require(\'node:test\').run', { concurrency: true }, () => {
       });
     });
 
-    it('should not allow randomize with rerunFailuresFilePath', () => {
-      assert.throws(() => run({ randomize: true, rerunFailuresFilePath: rerunStateFile }), {
-        code: 'ERR_INVALID_ARG_VALUE',
-        message: /The property 'options\.randomize' is not supported with rerun failures mode\./,
+    it('should allow randomize with rerunFailuresFilePath', async () => {
+      const stream = run({
+        files: [],
+        randomize: true,
+        rerunFailuresFilePath: tmpdir.resolve('rerun-state-randomize.json'),
       });
+      stream.on('test:fail', common.mustNotCall());
+      stream.on('test:pass', common.mustNotCall());
+      // eslint-disable-next-line no-unused-vars
+      for await (const _ of stream);
     });
 
-    it('should not allow randomSeed with rerunFailuresFilePath', () => {
-      assert.throws(() => run({ randomSeed: 12345, rerunFailuresFilePath: rerunStateFile }), {
-        code: 'ERR_INVALID_ARG_VALUE',
-        message: /The property 'options\.randomSeed' is not supported with rerun failures mode\./,
+    it('should allow randomSeed with rerunFailuresFilePath', async () => {
+      const stream = run({
+        files: [],
+        randomSeed: 12345,
+        rerunFailuresFilePath: tmpdir.resolve('rerun-state-seed.json'),
       });
+      stream.on('test:fail', common.mustNotCall());
+      stream.on('test:pass', common.mustNotCall());
+      // eslint-disable-next-line no-unused-vars
+      for await (const _ of stream);
     });
 
     it('should not allow decimal randomSeed values', () => {

@@ -2928,7 +2928,12 @@ enables randomization implicitly, even without `--test-randomize`.
 
 The value must be an integer between `0` and `4294967295`.
 
-This flag cannot be used with `--watch` or `--test-rerun-failures`.
+This flag cannot be used with `--watch`.
+
+When combined with `--test-rerun-failures`, the seed is persisted in the
+rerun state file so that a subsequent rerun reproduces the same execution order.
+An explicitly provided `--test-random-seed` takes precedence over the persisted
+seed.
 
 ### `--test-randomize`
 
@@ -2948,7 +2953,11 @@ reused with `--test-random-seed`.
 For detailed behavior and examples, see
 [randomizing tests execution order][].
 
-This flag cannot be used with `--watch` or `--test-rerun-failures`.
+This flag cannot be used with `--watch`.
+
+When combined with `--test-rerun-failures`, the randomization seed is
+persisted in the rerun state file so that a subsequent rerun reproduces the same
+execution order.
 
 ### `--test-reporter`
 

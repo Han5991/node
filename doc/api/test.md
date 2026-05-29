@@ -793,6 +793,12 @@ describe('math', () => {
 
 `--test-randomize` and `--test-random-seed` are not supported with `--watch` mode.
 
+When `--test-randomize` or `--test-random-seed` is combined with
+`--test-rerun-failures`, the randomization seed is persisted in the rerun state
+file so that a subsequent rerun reproduces the same execution order. An
+explicitly provided `--test-random-seed` takes precedence over the persisted
+seed.
+
 Matching files are executed as test files.
 More information on the test file execution can be found
 in the [test runner execution model][] section.
