@@ -38,3 +38,38 @@ test('isolation=none overrides --test-concurrency', async () => {
   const cp = spawnSync(process.execPath, args, { cwd, env });
   assert.match(cp.stderr.toString(), /concurrency: 1,/);
 });
+
+const kConcurrencyIgnoredWarning =
+  '--test-concurrency is ignored when --test-isolation=none is set. ' +
+  'See https://github.com/nodejs/node/issues/55939';
+
+test('isolation=none warns when --test-concurrency is explicitly set', async () => {
+  const args = [
+    '--test', '--test-isolation=none', '--test-concurrency=4',
+  ];
+  const cp = spawnSync(process.execPath, args, { cwd, env });
+  assert(
+    cp.stderr.toString().includes(kConcurrencyIgnoredWarning),
+    `expected warning not found in stderr:\n${cp.stderr}`,
+  );
+});
+
+test('isolation=none does not warn without --test-concurrency', async () => {
+  const args = ['--test', '--test-isolation=none'];
+  const cp = spawnSync(process.execPath, args, { cwd, env });
+  assert(
+    !cp.stderr.toString().includes(kConcurrencyIgnoredWarning),
+    `unexpected warning found in stderr:\n${cp.stderr}`,
+  );
+});
+
+test('isolation=none does not warn with --test-concurrency=1', async () => {
+  const args = [
+    '--test', '--test-isolation=none', '--test-concurrency=1',
+  ];
+  const cp = spawnSync(process.execPath, args, { cwd, env });
+  assert(
+    !cp.stderr.toString().includes(kConcurrencyIgnoredWarning),
+    `unexpected warning found in stderr:\n${cp.stderr}`,
+  );
+});
