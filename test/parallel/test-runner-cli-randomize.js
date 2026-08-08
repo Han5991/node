@@ -1,17 +1,24 @@
 'use strict';
 
 require('../common');
+const tmpdir = require('../common/tmpdir');
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { describe, it } = require('node:test');
 const fixtures = require('../common/fixtures');
 
 const testFixtures = fixtures.path('test-runner');
 const internalOrderFixture = fixtures.path('test-runner', 'randomize', 'internal-order.cjs');
-const rerunStateFile = fixtures.path('test-runner', 'rerun-state.json');
 const kShardFiles = ['a.cjs', 'b.cjs', 'c.cjs', 'd.cjs', 'e.cjs', 'f.cjs', 'g.cjs', 'h.cjs', 'i.cjs', 'j.cjs'];
 const kInternalTests = ['a', 'b', 'c', 'd', 'e'];
+
+tmpdir.refresh();
+let rerunStateCounter = 0;
+function freshRerunStateFile() {
+  return tmpdir.resolve(`rerun-state-${rerunStateCounter++}.json`);
+}
 
 function getShardOrder(stdout) {
   return Array.from(stdout.matchAll(/ok \d+ - ([a-j]\.cjs) this should pass/g), ({ 1: name }) => name);
@@ -183,34 +190,126 @@ describe('test runner randomize flags via command line', () => {
     assert.strictEqual(child.signal, null);
   });
 
-  it('should reject --test-randomize with --test-rerun-failures', () => {
+  it('should allow --test-randomize with --test-rerun-failures', () => {
     const child = spawnSync(process.execPath, [
       '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
       '--test-randomize',
       '--test-rerun-failures',
-      rerunStateFile,
+      freshRerunStateFile(),
       join(testFixtures, 'shards/*.cjs'),
     ]);
 
-    assert.strictEqual(child.stdout.toString(), '');
-    assert.match(child.stderr.toString(), /The property 'options\.randomize' is not supported with rerun failures mode\./);
-    assert.strictEqual(child.status, 1);
+    assert.strictEqual(child.stderr.toString(), '');
+    assert.strictEqual(child.status, 0);
     assert.strictEqual(child.signal, null);
+    assert.match(child.stdout.toString(), /# Randomized test order seed: \d+/);
   });
 
-  it('should reject --test-random-seed with --test-rerun-failures', () => {
+  it('should allow --test-random-seed with --test-rerun-failures', () => {
     const child = spawnSync(process.execPath, [
       '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
       '--test-random-seed=12345',
       '--test-rerun-failures',
-      rerunStateFile,
+      freshRerunStateFile(),
       join(testFixtures, 'shards/*.cjs'),
     ]);
 
-    assert.strictEqual(child.stdout.toString(), '');
-    assert.match(child.stderr.toString(), /The property 'options\.randomSeed' is not supported with rerun failures mode\./);
-    assert.strictEqual(child.status, 1);
+    assert.strictEqual(child.stderr.toString(), '');
+    assert.strictEqual(child.status, 0);
     assert.strictEqual(child.signal, null);
+    assert.match(child.stdout.toString(), /# Randomized test order seed: 12345/);
+  });
+
+  it('should persist the seed and reproduce the order on a rerun', () => {
+    const stateFile = freshRerunStateFile();
+    const args = [
+      '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
+      '--test-randomize',
+      '--test-rerun-failures',
+      stateFile,
+      join(testFixtures, 'shards/*.cjs'),
+    ];
+
+    // First run randomizes with a fresh seed and persists it.
+    const first = spawnSync(process.execPath, args);
+    assert.strictEqual(first.stderr.toString(), '');
+    assert.strictEqual(first.status, 0);
+    const firstOut = first.stdout.toString();
+    const seedMatch = firstOut.match(/# Randomized test order seed: (\d+)/);
+    assert(seedMatch, `Missing randomization seed diagnostic in output: ${firstOut}`);
+    const firstOrder = getShardOrder(firstOut);
+    assert.deepStrictEqual([...firstOrder].sort(), kShardFiles);
+
+    // Rerun without an explicit seed: the persisted seed must reproduce order.
+    const rerunArgs = [
+      '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
+      '--test-rerun-failures',
+      stateFile,
+      join(testFixtures, 'shards/*.cjs'),
+    ];
+    const second = spawnSync(process.execPath, rerunArgs);
+    assert.strictEqual(second.stderr.toString(), '');
+    assert.strictEqual(second.status, 0);
+    const secondOut = second.stdout.toString();
+    assert.match(secondOut, new RegExp(`# Randomized test order seed: ${seedMatch[1]}`));
+    const secondOrder = getShardOrder(secondOut);
+    assert.deepStrictEqual(secondOrder, firstOrder);
+  });
+
+  it('should give an explicit --test-random-seed precedence over the persisted seed', () => {
+    const stateFile = freshRerunStateFile();
+    // Seed the state file with a different persisted seed.
+    const first = spawnSync(process.execPath, [
+      '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
+      '--test-random-seed=11111',
+      '--test-rerun-failures',
+      stateFile,
+      join(testFixtures, 'shards/*.cjs'),
+    ]);
+    assert.strictEqual(first.status, 0);
+
+    const second = spawnSync(process.execPath, [
+      '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
+      '--test-random-seed=22222',
+      '--test-rerun-failures',
+      stateFile,
+      join(testFixtures, 'shards/*.cjs'),
+    ]);
+    assert.strictEqual(second.stderr.toString(), '');
+    assert.strictEqual(second.status, 0);
+    assert.match(second.stdout.toString(), /# Randomized test order seed: 22222/);
+  });
+
+  it('should start fresh with a legacy bare-array rerun state file', () => {
+    const stateFile = freshRerunStateFile();
+    // Simulate an older Node.js version that wrote a bare array.
+    writeFileSync(stateFile, JSON.stringify([{}]), 'utf8');
+
+    const child = spawnSync(process.execPath, [
+      '--test',
+      '--test-concurrency=1',
+      '--test-rerun-failures',
+      stateFile,
+      join(testFixtures, 'shards/*.cjs'),
+    ]);
+
+    // The legacy file is detected and the run degrades gracefully instead of
+    // crashing with a raw TypeError.
+    assert.strictEqual(child.signal, null);
+    assert.doesNotMatch(child.stderr.toString(), /TypeError/);
+    assert.match(child.stdout.toString(), /is not a valid rerun file/);
   });
 
   it('should reject out of range --test-random-seed values', () => {
